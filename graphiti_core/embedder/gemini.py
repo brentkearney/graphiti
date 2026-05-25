@@ -76,9 +76,21 @@ class GeminiEmbedder(EmbedderClient):
         else:
             self.client = client
 
-        if batch_size is None and self.config.embedding_model == 'gemini-embedding-001':
-            # Gemini API has a limit on the number of instances per request
+        if batch_size is None and self.config.embedding_model.startswith('gemini-embedding-'):
+            # Gemini embedding models (`gemini-embedding-001`, `gemini-embedding-2`, etc.)
+            # are observed to return mismatched embedding counts when called in larger
+            # batches — fewer embeddings than inputs, with no error. Downstream
+            # `zip(filtered_nodes, name_embeddings, strict=True)` in nodes.py / edges.py
+            # then raises ValueError("zip() argument 2 is shorter than argument 1"),
+            # which the QueueService swallows, silently dropping the episode.
+            #
+            # Reference: Gemini API per-request instance limit
             # https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/text-embeddings-api
+            #
+            # Force batch_size=1 for all Gemini embedding models until upstream
+            # confirms a reliable batch endpoint. Callers can override via the
+            # `batch_size` argument if they have empirical proof a larger size works
+            # for their model + region.
             self.batch_size = 1
         elif batch_size is None:
             self.batch_size = DEFAULT_BATCH_SIZE

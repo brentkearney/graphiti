@@ -192,4 +192,13 @@ class GeminiEmbedder(EmbedderClient):
                         logger.error(f'Failed to embed individual item: {individual_error}')
                         raise individual_error
 
+        # Gemini's batch embed endpoint can silently return fewer embeddings than
+        # inputs. A short result would propagate to zip(..., strict=True) downstream
+        # and get swallowed, silently dropping data. Fail loudly instead.
+        if len(all_embeddings) != len(input_data_list):
+            raise ValueError(
+                f'Gemini API returned {len(all_embeddings)} embeddings for '
+                f'{len(input_data_list)} inputs'
+            )
+
         return all_embeddings

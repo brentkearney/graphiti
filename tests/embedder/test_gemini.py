@@ -24,6 +24,7 @@ import pytest
 from embedder_fixtures import create_embedding_values
 
 from graphiti_core.embedder.gemini import (
+    DEFAULT_BATCH_SIZE,
     DEFAULT_EMBEDDING_MODEL,
     GeminiEmbedder,
     GeminiEmbedderConfig,
@@ -109,6 +110,58 @@ class TestGeminiEmbedderInitialization:
 
         assert embedder.config.api_key == 'test_api_key'
         assert embedder.config.embedding_model == DEFAULT_EMBEDDING_MODEL
+
+    @patch('google.genai.Client')
+    def test_gemini_embedding_2_forces_batch_size_1(self, mock_client):
+        """gemini-embedding-2 with no batch_size should force batch_size=1."""
+        config = GeminiEmbedderConfig(
+            api_key='test_api_key', embedding_model='gemini-embedding-2'
+        )
+        embedder = GeminiEmbedder(config=config)
+
+        assert embedder.batch_size == 1
+
+    @pytest.mark.parametrize(
+        'model',
+        [
+            'gemini-embedding-001',
+            'gemini-embedding-2',
+            'gemini-embedding-004',
+            'gemini-embedding-exp',
+        ],
+    )
+    @patch('google.genai.Client')
+    def test_all_gemini_embedding_models_force_batch_size_1(self, mock_client, model):
+        """All gemini-embedding-* models with no batch_size should force batch_size=1."""
+        config = GeminiEmbedderConfig(api_key='test_api_key', embedding_model=model)
+        embedder = GeminiEmbedder(config=config)
+
+        assert embedder.batch_size == 1
+
+    @pytest.mark.parametrize(
+        'model',
+        [
+            'text-embedding-004',
+            'models/text-embedding-004',
+        ],
+    )
+    @patch('google.genai.Client')
+    def test_non_gemini_models_use_default_batch_size(self, mock_client, model):
+        """Non gemini-embedding-* models should keep DEFAULT_BATCH_SIZE (no over-matching)."""
+        config = GeminiEmbedderConfig(api_key='test_api_key', embedding_model=model)
+        embedder = GeminiEmbedder(config=config)
+
+        assert embedder.batch_size == DEFAULT_BATCH_SIZE
+
+    @patch('google.genai.Client')
+    def test_explicit_batch_size_overrides_gemini_default(self, mock_client):
+        """An explicit batch_size wins even for gemini-embedding models."""
+        config = GeminiEmbedderConfig(
+            api_key='test_api_key', embedding_model='gemini-embedding-2'
+        )
+        embedder = GeminiEmbedder(config=config, batch_size=8)
+
+        assert embedder.batch_size == 8
 
 
 class TestGeminiEmbedderCreate:
@@ -389,6 +442,54 @@ class TestGeminiEmbedderCreateBatch:
         # Verify results have correct dimension
         assert len(result) == 2
         assert all(len(embedding) == 512 for embedding in result)
+
+    @pytest.mark.asyncio
+    async def test_create_batch_batch_size_1_calls_api_per_item(
+        self,
+        mock_gemini_client: Any,
+        mock_gemini_response: MagicMock,
+    ) -> None:
+        """With batch_size=1, create_batch calls the API once per input with single-element contents."""
+        config = GeminiEmbedderConfig(
+            api_key='test_api_key', embedding_model='gemini-embedding-2'
+        )
+        embedder = GeminiEmbedder(config=config)
+        embedder.client = mock_gemini_client
+        assert embedder.batch_size == 1
+
+        mock_gemini_client.aio.models.embed_content.return_value = mock_gemini_response
+        input_batch = ['Input 1', 'Input 2', 'Input 3', 'Input 4', 'Input 5']
+
+        result = await embedder.create_batch(input_batch)
+
+        # One API call per input, each with a single-element contents list
+        assert mock_gemini_client.aio.models.embed_content.call_count == 5
+        for call in mock_gemini_client.aio.models.embed_content.call_args_list:
+            _, kwargs = call
+            assert len(kwargs['contents']) == 1
+        assert len(result) == 5
+
+    @pytest.mark.asyncio
+    async def test_create_batch_raises_on_count_mismatch(
+        self,
+        gemini_embedder: GeminiEmbedder,
+        mock_gemini_client: Any,
+    ) -> None:
+        """If the API returns fewer embeddings than inputs, create_batch must raise, not silently drop."""
+        # Default embedder uses DEFAULT_BATCH_SIZE, so all inputs go in a single batch call.
+        short_response = MagicMock()
+        short_response.embeddings = [
+            create_gemini_embedding(0.1),
+            create_gemini_embedding(0.2),
+        ]
+        mock_gemini_client.aio.models.embed_content.return_value = short_response
+
+        input_batch = ['Input 1', 'Input 2', 'Input 3']
+
+        with pytest.raises(ValueError) as exc_info:
+            await gemini_embedder.create_batch(input_batch)
+
+        assert 'embedding' in str(exc_info.value).lower()
 
 
 if __name__ == '__main__':

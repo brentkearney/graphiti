@@ -506,7 +506,7 @@ class EntityNode(Node):
     async def generate_name_embedding(self, embedder: EmbedderClient):
         start = time()
         text = self.name.replace('\n', ' ')
-        self.name_embedding = await embedder.create(input_data=[text])
+        self.name_embedding = await embedder.create(input_data=[text], task_type='document')
         end = time()
         logger.debug(
             f'embedded entity {self.uuid} name ({len(text)} chars) in {(end - start) * 1000} ms'
@@ -717,7 +717,7 @@ class CommunityNode(Node):
     async def generate_name_embedding(self, embedder: EmbedderClient):
         start = time()
         text = self.name.replace('\n', ' ')
-        self.name_embedding = await embedder.create(input_data=[text])
+        self.name_embedding = await embedder.create(input_data=[text], task_type='document')
         end = time()
         logger.debug(
             f'embedded entity {self.uuid} name ({len(text)} chars) in {(end - start) * 1000} ms'
@@ -1117,6 +1117,8 @@ async def create_entity_node_embeddings(embedder: EmbedderClient, nodes: list[En
     if not filtered_nodes:
         return
 
-    name_embeddings = await embedder.create_batch([node.name for node in filtered_nodes])
+    name_embeddings = await embedder.create_batch(
+        [node.name for node in filtered_nodes], task_type='document'
+    )
     for node, name_embedding in zip(filtered_nodes, name_embeddings, strict=True):
         node.name_embedding = name_embedding

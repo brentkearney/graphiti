@@ -23,6 +23,7 @@ import yaml
 from graphiti_core.driver.falkordb_driver import FalkorDriver
 from graphiti_core.edges import EntityEdge
 from graphiti_core.embedder.gemini import GeminiEmbedder, GeminiEmbedderConfig
+from graphiti_core.errors import GroupsEdgesNotFoundError
 from graphiti_core.nodes import CommunityNode, EntityNode
 
 logging.basicConfig(level=logging.INFO, stream=sys.stderr, format='%(levelname)s %(message)s')
@@ -75,7 +76,13 @@ async def count_objects(cls, driver, group_id: str) -> int:
 
 
 async def load_all(cls, driver, group_id: str, page_size: int) -> list:
-    items = await cls.get_by_group_ids(driver, [group_id], limit=None)
+    try:
+        items = await cls.get_by_group_ids(driver, [group_id], limit=None)
+    except GroupsEdgesNotFoundError:
+        # EntityEdge.get_by_group_ids raises instead of returning [] when a group has
+        # zero edges (nodes/communities return []); treat as empty so sparse graphs
+        # still migrate and get marked.
+        items = []
     expected = await count_objects(cls, driver, group_id)
     if len(items) != expected:
         raise RuntimeError(
@@ -88,7 +95,7 @@ async def load_all(cls, driver, group_id: str, page_size: int) -> list:
 async def read_marker(driver) -> dict | None:
     records, _, _ = await driver.execute_query(
         'MATCH (m:AtvenuEmbeddingMeta) RETURN m.version AS version, m.run AS run, '
-        'm.applied_at AS applied_at ORDER BY m.version DESC, m.run DESC LIMIT 1'
+        'm.applied_at AS applied_at, m.stats AS stats ORDER BY m.version DESC, m.run DESC LIMIT 1'
     )
     return dict(records[0]) if records else None
 
@@ -104,17 +111,23 @@ async def write_marker(driver, run: int, stats: dict) -> None:
     )
 
 
-async def reembed(objs: list, regenerate, save, concurrency: int) -> list[str]:
-    """Regenerate ALL embeddings first, then save ALL. Returns failed uuids."""
+async def embed_all(objs: list, regenerate, concurrency: int) -> None:
+    """Regenerate embeddings for objs. Any embed exception propagates so the caller
+    aborts before a single write (all-or-nothing across ALL types)."""
     sem = asyncio.Semaphore(concurrency)
 
-    async def guarded(coro_fn, obj):
+    async def guarded(obj):
         async with sem:
-            await coro_fn(obj)
+            await regenerate(obj)
 
-    # Phase 1: embed everything (any exception aborts before a single write)
-    await asyncio.gather(*(guarded(regenerate, o) for o in objs))
-    # Phase 2: save; collect per-object failures
+    await asyncio.gather(*(guarded(o) for o in objs))
+
+
+async def save_all(objs: list, save, concurrency: int) -> list[str]:
+    """Save objs, collecting per-object save failures (returned as uuids). A save
+    failure is reported, never raised, so one bad write can't leave the run in an
+    undefined state — the failures list gates the marker."""
+    sem = asyncio.Semaphore(concurrency)
     failures: list[str] = []
 
     async def save_one(obj):
@@ -144,8 +157,9 @@ async def main() -> int:
 
     out = {'ok': False, 'mode': 'apply' if args.apply else 'status', 'graph': args.graph,
            'counts': {}, 'marker': None, 'reembedded': None, 'failures': [], 'error': None}
-    driver = build_driver(args.graph)
+    driver = None
     try:
+        driver = build_driver(args.graph)
         nodes = await load_all(EntityNode, driver, args.group_id, args.page_size)
         edges = await load_all(EntityEdge, driver, args.group_id, args.page_size)
         communities = await load_all(CommunityNode, driver, args.group_id, args.page_size)
@@ -162,19 +176,27 @@ async def main() -> int:
             return 0
 
         embedder = build_embedder(args.config)
-        failures: list[str] = []
-        failures += await reembed(
-            nodes, lambda n: n.generate_name_embedding(embedder),
-            lambda n: n.save(driver), args.concurrency)
-        failures += await reembed(
-            edges, lambda e: e.generate_embedding(embedder),
-            lambda e: e.save(driver), args.concurrency)
-        failures += await reembed(
-            communities, lambda c: c.generate_name_embedding(embedder),
-            lambda c: c.save(driver), args.concurrency)
+
+        # Phase 1: embed EVERY type first. Any embed failure raises here, before a
+        # single write, so a partial run never leaves some types saved and others not.
+        await embed_all(nodes, lambda n: n.generate_name_embedding(embedder), args.concurrency)
+        await embed_all(edges, lambda e: e.generate_embedding(embedder), args.concurrency)
+        await embed_all(communities, lambda c: c.generate_name_embedding(embedder),
+                        args.concurrency)
+
+        # Phase 2: save every type, collecting per-object save failures. reembedded
+        # reflects what actually persisted (attempted minus failed), even on error.
+        node_fail = await save_all(nodes, lambda n: n.save(driver), args.concurrency)
+        edge_fail = await save_all(edges, lambda e: e.save(driver), args.concurrency)
+        comm_fail = await save_all(communities, lambda c: c.save(driver), args.concurrency)
+        failures = node_fail + edge_fail + comm_fail
 
         out['failures'] = failures
-        out['reembedded'] = {k: v for k, v in out['counts'].items()}
+        out['reembedded'] = {
+            'entities': len(nodes) - len(node_fail),
+            'edges': len(edges) - len(edge_fail),
+            'communities': len(communities) - len(comm_fail),
+        }
         if failures:
             out['error'] = f'{len(failures)} objects failed to save; marker NOT written; re-run'
             return 0
@@ -188,7 +210,8 @@ async def main() -> int:
         out['error'] = str(e)
         return 0
     finally:
-        await driver.close()
+        if driver is not None:
+            await driver.close()
         print(json.dumps(out))
 
 

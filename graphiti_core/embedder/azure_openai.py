@@ -19,7 +19,7 @@ from typing import Any
 
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 
-from .client import EmbedderClient
+from .client import EmbedderClient, TaskType
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,9 @@ class AzureOpenAIEmbedderClient(EmbedderClient):
         self.azure_client = azure_client
         self.model = model
 
-    async def create(self, input_data: str | list[str] | Any) -> list[float]:
+    async def create(
+        self, input_data: str | list[str] | Any, task_type: TaskType | None = None
+    ) -> list[float]:
         """Create embeddings using Azure OpenAI client."""
         try:
             # Handle different input types
@@ -58,7 +60,9 @@ class AzureOpenAIEmbedderClient(EmbedderClient):
             logger.error(f'Error in Azure OpenAI embedding: {e}')
             raise
 
-    async def create_batch(self, input_data_list: list[str]) -> list[list[float]]:
+    async def create_batch(
+        self, input_data_list: list[str], task_type: TaskType | None = None
+    ) -> list[list[float]]:
         """Create batch embeddings using Azure OpenAI client."""
         try:
             response = await self.azure_client.embeddings.create(

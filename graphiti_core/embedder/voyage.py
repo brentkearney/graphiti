@@ -30,7 +30,7 @@ else:
 
 from pydantic import Field
 
-from .client import EmbedderClient, EmbedderConfig
+from .client import EmbedderClient, EmbedderConfig, TaskType
 
 DEFAULT_EMBEDDING_MODEL = 'voyage-3'
 
@@ -52,7 +52,9 @@ class VoyageAIEmbedder(EmbedderClient):
         self.client = voyageai.AsyncClient(api_key=config.api_key)  # type: ignore[reportUnknownMemberType]
 
     async def create(
-        self, input_data: str | list[str] | Iterable[int] | Iterable[Iterable[int]]
+        self,
+        input_data: str | list[str] | Iterable[int] | Iterable[Iterable[int]],
+        task_type: TaskType | None = None,
     ) -> list[float]:
         if isinstance(input_data, str):
             input_list = [input_data]
@@ -68,7 +70,9 @@ class VoyageAIEmbedder(EmbedderClient):
         result = await self.client.embed(input_list, model=self.config.embedding_model)
         return [float(x) for x in result.embeddings[0][: self.config.embedding_dim]]
 
-    async def create_batch(self, input_data_list: list[str]) -> list[list[float]]:
+    async def create_batch(
+        self, input_data_list: list[str], task_type: TaskType | None = None
+    ) -> list[list[float]]:
         result = await self.client.embed(input_data_list, model=self.config.embedding_model)
         return [
             [float(x) for x in embedding[: self.config.embedding_dim]]

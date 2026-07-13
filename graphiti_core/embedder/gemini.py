@@ -33,13 +33,20 @@ else:
 
 from pydantic import Field
 
-from .client import EmbedderClient, EmbedderConfig
+from .client import EmbedderClient, EmbedderConfig, TaskType
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_EMBEDDING_MODEL = 'text-embedding-001'  # gemini-embedding-001 or text-embedding-005
 
 DEFAULT_BATCH_SIZE = 100
+
+# Task-aware embedding. gemini-embedding-2 and newer express retrieval intent
+# as an input prompt prefix; gemini-embedding-001 and text-embedding-* take a
+# native EmbedContentConfig.task_type instead. https://ai.google.dev/gemini-api/docs/embeddings
+DOCUMENT_PREFIX = 'title: none | text: '
+QUERY_PREFIX = 'task: search result | query: '
+NATIVE_TASK_TYPE = {'document': 'RETRIEVAL_DOCUMENT', 'query': 'RETRIEVAL_QUERY'}
 
 
 class GeminiEmbedderConfig(EmbedderConfig):
@@ -97,8 +104,41 @@ class GeminiEmbedder(EmbedderClient):
         else:
             self.batch_size = batch_size
 
+    def _model(self) -> str:
+        return self.config.embedding_model or DEFAULT_EMBEDDING_MODEL
+
+    def _uses_prompt_prefixes(self) -> bool:
+        model = self._model()
+        return model.startswith('gemini-embedding-') and not model.startswith(
+            'gemini-embedding-001'
+        )
+
+    def _apply_prefix(self, text: str, task_type: TaskType | None) -> str:
+        if task_type is None or not self._uses_prompt_prefixes():
+            return text
+        prefix = DOCUMENT_PREFIX if task_type == 'document' else QUERY_PREFIX
+        return f'{prefix}{text}'
+
+    def _prefix_input(self, input_data, task_type: TaskType | None):
+        """Prefix string content, preserving the input's shape. Token iterables pass through."""
+        if isinstance(input_data, str):
+            return self._apply_prefix(input_data, task_type)
+        if isinstance(input_data, list):
+            return [
+                self._apply_prefix(i, task_type) if isinstance(i, str) else i for i in input_data
+            ]
+        return input_data
+
+    def _embed_config(self, task_type: TaskType | None) -> 'types.EmbedContentConfig':
+        kwargs: dict = {'output_dimensionality': self.config.embedding_dim}
+        if task_type is not None and not self._uses_prompt_prefixes():
+            kwargs['task_type'] = NATIVE_TASK_TYPE[task_type]
+        return types.EmbedContentConfig(**kwargs)
+
     async def create(
-        self, input_data: str | list[str] | Iterable[int] | Iterable[Iterable[int]]
+        self,
+        input_data: str | list[str] | Iterable[int] | Iterable[Iterable[int]],
+        task_type: TaskType | None = None,
     ) -> list[float]:
         """
         Create embeddings for the given input data using Google's Gemini embedding model.
@@ -106,6 +146,8 @@ class GeminiEmbedder(EmbedderClient):
         Args:
             input_data: The input data to create embeddings for. Can be a string, list of strings,
                        or an iterable of integers or iterables of integers.
+            task_type: Optional retrieval intent ('document' or 'query'). Applied as a prompt
+                       prefix or native EmbedContentConfig.task_type depending on model family.
 
         Returns:
             A list of floats representing the embedding vector.
@@ -113,8 +155,8 @@ class GeminiEmbedder(EmbedderClient):
         # Generate embeddings
         result = await self.client.aio.models.embed_content(
             model=self.config.embedding_model or DEFAULT_EMBEDDING_MODEL,
-            contents=[input_data],  # type: ignore[arg-type]  # mypy fails on broad union type
-            config=types.EmbedContentConfig(output_dimensionality=self.config.embedding_dim),
+            contents=[self._prefix_input(input_data, task_type)],  # type: ignore[arg-type]  # mypy fails on broad union type
+            config=self._embed_config(task_type),
         )
 
         if not result.embeddings or len(result.embeddings) == 0 or not result.embeddings[0].values:
@@ -122,7 +164,9 @@ class GeminiEmbedder(EmbedderClient):
 
         return result.embeddings[0].values
 
-    async def create_batch(self, input_data_list: list[str]) -> list[list[float]]:
+    async def create_batch(
+        self, input_data_list: list[str], task_type: TaskType | None = None
+    ) -> list[list[float]]:
         """
         Create embeddings for a batch of input data using Google's Gemini embedding model.
 
@@ -131,12 +175,16 @@ class GeminiEmbedder(EmbedderClient):
 
         Args:
             input_data_list: A list of strings to create embeddings for.
+            task_type: Optional retrieval intent ('document' or 'query'). Applied as a prompt
+                       prefix or native EmbedContentConfig.task_type depending on model family.
 
         Returns:
             A list of embedding vectors (each vector is a list of floats).
         """
         if not input_data_list:
             return []
+
+        input_data_list = [self._apply_prefix(i, task_type) for i in input_data_list]
 
         batch_size = self.batch_size
         all_embeddings = []
@@ -150,9 +198,7 @@ class GeminiEmbedder(EmbedderClient):
                 result = await self.client.aio.models.embed_content(
                     model=self.config.embedding_model or DEFAULT_EMBEDDING_MODEL,
                     contents=batch,  # type: ignore[arg-type]  # mypy fails on broad union type
-                    config=types.EmbedContentConfig(
-                        output_dimensionality=self.config.embedding_dim
-                    ),
+                    config=self._embed_config(task_type),
                 )
 
                 if not result.embeddings or len(result.embeddings) == 0:
@@ -176,9 +222,7 @@ class GeminiEmbedder(EmbedderClient):
                         result = await self.client.aio.models.embed_content(
                             model=self.config.embedding_model or DEFAULT_EMBEDDING_MODEL,
                             contents=[item],  # type: ignore[arg-type]  # mypy fails on broad union type
-                            config=types.EmbedContentConfig(
-                                output_dimensionality=self.config.embedding_dim
-                            ),
+                            config=self._embed_config(task_type),
                         )
 
                         if not result.embeddings or len(result.embeddings) == 0:

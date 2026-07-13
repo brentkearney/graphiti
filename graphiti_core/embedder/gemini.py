@@ -46,6 +46,7 @@ DEFAULT_BATCH_SIZE = 100
 # native EmbedContentConfig.task_type instead. https://ai.google.dev/gemini-api/docs/embeddings
 DOCUMENT_PREFIX = 'title: none | text: '
 QUERY_PREFIX = 'task: search result | query: '
+PREFIXES = {'document': DOCUMENT_PREFIX, 'query': QUERY_PREFIX}
 NATIVE_TASK_TYPE = {'document': 'RETRIEVAL_DOCUMENT', 'query': 'RETRIEVAL_QUERY'}
 
 
@@ -116,8 +117,7 @@ class GeminiEmbedder(EmbedderClient):
     def _apply_prefix(self, text: str, task_type: TaskType | None) -> str:
         if task_type is None or not self._uses_prompt_prefixes():
             return text
-        prefix = DOCUMENT_PREFIX if task_type == 'document' else QUERY_PREFIX
-        return f'{prefix}{text}'
+        return f'{PREFIXES[task_type]}{text}'
 
     def _prefix_input(self, input_data, task_type: TaskType | None):
         """Prefix string content, preserving the input's shape. Token iterables pass through."""

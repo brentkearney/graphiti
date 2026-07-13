@@ -598,11 +598,14 @@ async def _semantic_candidate_search(
         return [[] for _ in extracted_nodes]
 
     try:
-        query_vectors = await clients.embedder.create_batch(queries)
+        query_vectors = await clients.embedder.create_batch(queries, task_type='query')
     except NotImplementedError:
         query_vectors = list(
             await semaphore_gather(
-                *[clients.embedder.create(input_data=[query]) for query in queries],
+                *[
+                    clients.embedder.create(input_data=[query], task_type='query')
+                    for query in queries
+                ],
                 max_coroutines=getattr(clients, 'max_coroutines', None),
             )
         )

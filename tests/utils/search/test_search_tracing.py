@@ -42,7 +42,7 @@ async def test_search_emits_trace_spans_for_edge_similarity(monkeypatch):
     async def fake_edge_similarity_search(*args, **kwargs):
         return []
 
-    async def fake_embedder_create(*, input_data):
+    async def fake_embedder_create(*, input_data, task_type=None):
         return [0.1, 0.2, 0.3]
 
     monkeypatch.setattr(
@@ -97,7 +97,7 @@ async def test_search_uses_noop_tracer_when_client_has_no_tracer(monkeypatch):
     async def fake_edge_similarity_search(*args, **kwargs):
         return []
 
-    async def fake_embedder_create(*, input_data):
+    async def fake_embedder_create(*, input_data, task_type=None):
         return [0.1, 0.2, 0.3]
 
     monkeypatch.setattr(

@@ -177,7 +177,11 @@ def mock_embedder():
         else:
             raise ValueError(f'Unsupported input type: {type(input_data)}')
 
+    def mock_embed_batch(input_data_list, task_type=None):
+        return [embeddings[item] for item in input_data_list]
+
     mock_model.create.side_effect = mock_embed
+    mock_model.create_batch.side_effect = mock_embed_batch
     return mock_model
 
 

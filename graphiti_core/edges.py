@@ -288,7 +288,7 @@ class EntityEdge(Edge):
         start = time()
 
         text = self.fact.replace('\n', ' ')
-        self.fact_embedding = await embedder.create(input_data=[text])
+        self.fact_embedding = await embedder.create(input_data=[text], task_type='document')
 
         end = time()
         logger.debug(
@@ -1041,6 +1041,8 @@ async def create_entity_edge_embeddings(embedder: EmbedderClient, edges: list[En
 
     if len(filtered_edges) == 0:
         return
-    fact_embeddings = await embedder.create_batch([edge.fact for edge in filtered_edges])
+    fact_embeddings = await embedder.create_batch(
+        [edge.fact for edge in filtered_edges], task_type='document'
+    )
     for edge, fact_embedding in zip(filtered_edges, fact_embeddings, strict=True):
         edge.fact_embedding = fact_embedding

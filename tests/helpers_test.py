@@ -168,7 +168,7 @@ embeddings['Alice Smith'] = embeddings['Alice']
 def mock_embedder():
     mock_model = Mock(spec=EmbedderClient)
 
-    def mock_embed(input_data):
+    def mock_embed(input_data, task_type=None):
         if isinstance(input_data, str):
             return embeddings[input_data]
         elif isinstance(input_data, list):

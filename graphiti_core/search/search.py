@@ -145,7 +145,7 @@ async def search(
             search_vector = (
                 query_vector
                 if query_vector is not None
-                else await embedder.create(input_data=[query.replace('\n', ' ')])
+                else await embedder.create(input_data=[query.replace('\n', ' ')], task_type='query')
             )
             span.add_attributes({'query_vector.dimension': len(search_vector)})
     else:

@@ -78,6 +78,15 @@ def gemini_embedder(mock_gemini_client: Any) -> GeminiEmbedder:
     return client
 
 
+@pytest.fixture
+def gemini2_embedder(mock_gemini_client: Any) -> GeminiEmbedder:
+    """Embedder configured for the prompt-prefix model family."""
+    config = GeminiEmbedderConfig(api_key='test_api_key', embedding_model='gemini-embedding-2')
+    client = GeminiEmbedder(config=config)
+    client.client = mock_gemini_client
+    return client
+
+
 class TestGeminiEmbedderInitialization:
     """Tests for GeminiEmbedder initialization."""
 
@@ -490,6 +499,95 @@ class TestGeminiEmbedderCreateBatch:
             await gemini_embedder.create_batch(input_batch)
 
         assert 'embedding' in str(exc_info.value).lower()
+
+
+class TestGeminiEmbedderTaskType:
+    """Tests for task-aware prefixing / native task_type dispatch."""
+
+    @pytest.mark.asyncio
+    async def test_create_document_prefix_on_gemini2(
+        self,
+        gemini2_embedder: GeminiEmbedder,
+        mock_gemini_client: Any,
+        mock_gemini_response: MagicMock,
+    ) -> None:
+        mock_gemini_client.aio.models.embed_content.return_value = mock_gemini_response
+        await gemini2_embedder.create('brent uses falkordb', task_type='document')
+        _, kwargs = mock_gemini_client.aio.models.embed_content.call_args
+        assert kwargs['contents'] == ['title: none | text: brent uses falkordb']
+        assert getattr(kwargs['config'], 'task_type', None) is None
+
+    @pytest.mark.asyncio
+    async def test_create_query_prefix_on_gemini2(
+        self,
+        gemini2_embedder: GeminiEmbedder,
+        mock_gemini_client: Any,
+        mock_gemini_response: MagicMock,
+    ) -> None:
+        mock_gemini_client.aio.models.embed_content.return_value = mock_gemini_response
+        await gemini2_embedder.create('what db does brent use', task_type='query')
+        _, kwargs = mock_gemini_client.aio.models.embed_content.call_args
+        assert kwargs['contents'] == ['task: search result | query: what db does brent use']
+
+    @pytest.mark.asyncio
+    async def test_create_list_input_prefixes_each_string(
+        self,
+        gemini2_embedder: GeminiEmbedder,
+        mock_gemini_client: Any,
+        mock_gemini_response: MagicMock,
+    ) -> None:
+        mock_gemini_client.aio.models.embed_content.return_value = mock_gemini_response
+        await gemini2_embedder.create(['alpha'], task_type='document')
+        _, kwargs = mock_gemini_client.aio.models.embed_content.call_args
+        assert kwargs['contents'] == [['title: none | text: alpha']]  # shape preserved
+
+    @pytest.mark.asyncio
+    async def test_create_no_task_type_is_unchanged(
+        self,
+        gemini2_embedder: GeminiEmbedder,
+        mock_gemini_client: Any,
+        mock_gemini_response: MagicMock,
+    ) -> None:
+        mock_gemini_client.aio.models.embed_content.return_value = mock_gemini_response
+        await gemini2_embedder.create('raw text')
+        _, kwargs = mock_gemini_client.aio.models.embed_content.call_args
+        assert kwargs['contents'] == ['raw text']
+        assert getattr(kwargs['config'], 'task_type', None) is None
+
+    @pytest.mark.asyncio
+    async def test_create_native_task_type_on_001(
+        self, mock_gemini_client: Any, mock_gemini_response: MagicMock
+    ) -> None:
+        config = GeminiEmbedderConfig(
+            api_key='test_api_key', embedding_model='gemini-embedding-001'
+        )
+        embedder = GeminiEmbedder(config=config)
+        embedder.client = mock_gemini_client
+        mock_gemini_client.aio.models.embed_content.return_value = mock_gemini_response
+        await embedder.create('stored fact', task_type='document')
+        _, kwargs = mock_gemini_client.aio.models.embed_content.call_args
+        assert kwargs['contents'] == ['stored fact']  # NOT prefixed
+        assert kwargs['config'].task_type == 'RETRIEVAL_DOCUMENT'
+
+    @pytest.mark.asyncio
+    async def test_create_batch_prefixes_each_item_on_gemini2(
+        self, gemini2_embedder: GeminiEmbedder, mock_gemini_client: Any
+    ) -> None:
+        # gemini-embedding-* forces batch_size=1 -> one API call per item
+        responses = [MagicMock() for _ in range(2)]
+        for i, r in enumerate(responses):
+            r.embeddings = [create_gemini_embedding(0.1 * (i + 1))]
+        mock_gemini_client.aio.models.embed_content.side_effect = responses
+
+        await gemini2_embedder.create_batch(['fact one', 'fact two'], task_type='document')
+
+        contents_seen = [
+            c.kwargs['contents'] for c in mock_gemini_client.aio.models.embed_content.call_args_list
+        ]
+        assert contents_seen == [
+            ['title: none | text: fact one'],
+            ['title: none | text: fact two'],
+        ]
 
 
 if __name__ == '__main__':

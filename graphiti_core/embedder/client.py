@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 EMBEDDING_DIM = int(os.getenv('EMBEDDING_DIM', 1024))
 
+# 'document' tags content being stored/indexed; 'query' tags search input at retrieval time.
 TaskType = Literal['document', 'query']
 
 
@@ -37,9 +38,38 @@ class EmbedderClient(ABC):
         input_data: str | list[str] | Iterable[int] | Iterable[Iterable[int]],
         task_type: TaskType | None = None,
     ) -> list[float]:
+        """Create an embedding for a single input.
+
+        Args:
+            input_data: The content to embed.
+            task_type: Retrieval intent for the embedded content: 'document' for stored
+                content being indexed, 'query' for search input at retrieval time.
+                Implementations MAY use this to improve asymmetric retrieval (e.g. an
+                instruction prefix or a provider-native task-type parameter).
+                Implementations that don't support task-aware embedding must still accept
+                this argument and leave behavior unchanged. `None` preserves legacy
+                symmetric behavior (no task-specific handling).
+
+        Returns:
+            The embedding vector.
+        """
         pass
 
     async def create_batch(
         self, input_data_list: list[str], task_type: TaskType | None = None
     ) -> list[list[float]]:
+        """Create embeddings for a batch of inputs.
+
+        Args:
+            input_data_list: The batch of content to embed.
+            task_type: Retrieval intent for the embedded content: 'document' for stored
+                content being indexed, 'query' for search input at retrieval time.
+                Implementations MAY use this to improve asymmetric retrieval.
+                Implementations that don't support task-aware embedding must still accept
+                this argument and leave behavior unchanged. `None` preserves legacy
+                symmetric behavior (no task-specific handling).
+
+        Returns:
+            One embedding vector per input, in order.
+        """
         raise NotImplementedError()

@@ -19,7 +19,7 @@ from collections.abc import Iterable
 from openai import AsyncAzureOpenAI, AsyncOpenAI
 from openai.types import EmbeddingModel
 
-from .client import EmbedderClient, EmbedderConfig
+from .client import EmbedderClient, EmbedderConfig, TaskType
 
 DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small'
 
@@ -52,14 +52,18 @@ class OpenAIEmbedder(EmbedderClient):
             self.client = AsyncOpenAI(api_key=config.api_key, base_url=config.base_url)
 
     async def create(
-        self, input_data: str | list[str] | Iterable[int] | Iterable[Iterable[int]]
+        self,
+        input_data: str | list[str] | Iterable[int] | Iterable[Iterable[int]],
+        task_type: TaskType | None = None,
     ) -> list[float]:
         result = await self.client.embeddings.create(
             input=input_data, model=self.config.embedding_model
         )
         return result.data[0].embedding[: self.config.embedding_dim]
 
-    async def create_batch(self, input_data_list: list[str]) -> list[list[float]]:
+    async def create_batch(
+        self, input_data_list: list[str], task_type: TaskType | None = None
+    ) -> list[list[float]]:
         result = await self.client.embeddings.create(
             input=input_data_list, model=self.config.embedding_model
         )

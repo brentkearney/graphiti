@@ -17,10 +17,13 @@ limitations under the License.
 import os
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 EMBEDDING_DIM = int(os.getenv('EMBEDDING_DIM', 1024))
+
+TaskType = Literal['document', 'query']
 
 
 class EmbedderConfig(BaseModel):
@@ -30,9 +33,13 @@ class EmbedderConfig(BaseModel):
 class EmbedderClient(ABC):
     @abstractmethod
     async def create(
-        self, input_data: str | list[str] | Iterable[int] | Iterable[Iterable[int]]
+        self,
+        input_data: str | list[str] | Iterable[int] | Iterable[Iterable[int]],
+        task_type: TaskType | None = None,
     ) -> list[float]:
         pass
 
-    async def create_batch(self, input_data_list: list[str]) -> list[list[float]]:
+    async def create_batch(
+        self, input_data_list: list[str], task_type: TaskType | None = None
+    ) -> list[list[float]]:
         raise NotImplementedError()

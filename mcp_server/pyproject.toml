@@ -15,6 +15,29 @@ dependencies = [
     "starlette>=0.37.0",
 ]
 
+[tool.uv]
+# Pin redis below 8.1.0 — falkordb is incompatible with it and the server cannot start.
+#
+# falkordb 1.6.2 (latest as of 2026-07) declares `redis>=7.1.0` with no upper bound, but
+# FalkorDB.__init__ -> Is_Cluster() builds a *sync* redis.Redis(**kwargs) from the async
+# connection's connection_kwargs. redis 8.1.0 added `himport_registry` to those kwargs,
+# and sync Redis.__init__ rejects it:
+#     TypeError: Redis.__init__() got an unexpected keyword argument 'himport_registry'
+# This raises during driver construction, so the MCP server dies at startup before
+# serving anything — it is not a degraded mode, it is a hard failure.
+#
+# Why this is easy to miss: the image build re-resolves dependencies
+# (`rm -f uv.lock && uv lock` in Dockerfile.gemini), so the outcome depends on the build
+# date. graphiti-custom v1.4.1, built 2026-07-29, resolved redis 8.0.1 and works; the
+# same source rebuilt after 8.1.0's release resolves 8.1.0 and does not. The committed
+# root uv.lock masks it for local development (redis 7.1.0 there).
+#
+# constraint-dependencies (not a direct dependency) because redis is transitive:
+# mcp_server -> graphiti-core[falkordb] -> falkordb -> redis.
+#
+# REMOVE THIS once falkordb ships a release compatible with redis >= 8.1.0.
+constraint-dependencies = ["redis<8.1"]
+
 [project.optional-dependencies]
 azure = [
     "azure-identity>=1.25.3",

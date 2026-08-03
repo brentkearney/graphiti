@@ -11,7 +11,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from uuid import uuid4
 
 from dotenv import load_dotenv
@@ -161,7 +161,10 @@ Core tools:
 - summarize_saga: generate or refresh the running summary of a saga's episodes.
 - build_communities: detect entity communities and produce higher-level community summaries.
 - get_episode_entities: trace provenance — the entities and facts created by specific episode UUIDs.
-- get_entity_edge / get_episodes: retrieve specific facts or episodes.
+- get_entity_edge: retrieve a specific fact by UUID.
+- get_episodes: list a group's most recent episodes. order_by picks the clock: valid_at (when the
+  described events occurred, the default), created_at (when the episode was ingested — use this to
+  confirm a just-added episode landed), or uuid.
 - delete_episode: remove an episode and cascade-delete the entities/facts it solely created.
 - delete_entity_edge / clear_graph: remove a fact, or clear a group's data.
 
@@ -798,13 +801,22 @@ async def get_entity_edge(uuid: str, group_id: str | None = None) -> dict[str, A
 async def get_episodes(
     group_ids: str | list[str] | None = None,
     max_episodes: int = 10,
+    order_by: Literal['valid_at', 'created_at', 'uuid'] = 'valid_at',
 ) -> EpisodeSearchResponse | ErrorResponse:
-    """Get episodes from the graph memory.
+    """Get the most recent episodes from the graph memory.
 
     Args:
         group_ids: Optional group ID, or list of group IDs, to filter results (a single
             string is accepted and treated as a one-element list)
         max_episodes: Maximum number of episodes to return (default: 10)
+        order_by: Which clock to sort by, newest first (default: valid_at).
+            - valid_at: when the events an episode describes occurred (event time).
+              The right choice for "what happened most recently?".
+            - created_at: when the episode was ingested (ingest time). Use this to
+              check whether an episode you just added has landed; note that
+              backfilled content sorts by when it was added, not when it happened.
+            - uuid: descending uuid. Random, so unrelated to time — kept only for
+              callers that depended on the previous ordering.
     """
     global graphiti_service
 
@@ -832,12 +844,18 @@ async def get_episodes(
             episodes = []
             for group_id in effective_group_ids:
                 episodes.extend(
-                    await EpisodicNode.get_by_group_ids(
-                        _driver_for_group(client, group_id), [group_id], limit=max_episodes
+                    await EpisodicNode.get_recent_by_group_ids(
+                        _driver_for_group(client, group_id),
+                        [group_id],
+                        limit=max_episodes,
+                        order_by=order_by,
                     )
                 )
+            _min = datetime.min.replace(tzinfo=timezone.utc)
             episodes.sort(
-                key=lambda episode: episode.created_at or datetime.min.replace(tzinfo=timezone.utc),
+                key=(lambda e: e.uuid)
+                if order_by == 'uuid'
+                else (lambda e: (getattr(e, order_by) or _min, e.uuid)),
                 reverse=True,
             )
             episodes = episodes[:max_episodes]
@@ -857,6 +875,7 @@ async def get_episodes(
                 'name': episode.name,
                 'content': episode.content,
                 'created_at': episode.created_at.isoformat() if episode.created_at else None,
+                'valid_at': episode.valid_at.isoformat() if episode.valid_at else None,
                 'source': episode.source.value
                 if hasattr(episode.source, 'value')
                 else str(episode.source),

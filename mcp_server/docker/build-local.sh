@@ -22,7 +22,11 @@
 set -euo pipefail
 
 IMAGE="${IMAGE:-ghcr.io/brentkearney/graphiti-mcp}"
-TAG="${TAG:-feat-bearer-auth}"
+# Release version lives in mcp_server/docker/VERSION. Bump it for every published build:
+# the tag is immutable, so re-running with an unchanged VERSION is refused below.
+# "bk-" distinguishes this image from atvenu/graphiti-custom, which has its own version line.
+BK_VERSION="${BK_VERSION:-$(cat "$(dirname "$0")/VERSION")}"
+TAG="${TAG:-bk-v${BK_VERSION}}"
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 PUSH="${PUSH:-1}"
 BUILDER="${BUILDER:-multiplatform}"
@@ -45,6 +49,17 @@ if [ "${PUSH}" = "1" ]; then
     echo "ERROR: 'oras' is required for the push path. Install with: brew install oras" >&2
     exit 1
   fi
+  # Immutable-tag guard. Publishing two different images under one tag is how a
+  # graphiti-core downgrade once shipped unnoticed: the floating tag moved while the
+  # host stayed pinned to an older digest, so both answered to the same name.
+  if EXISTING=$(oras manifest fetch --descriptor "${IMAGE}:${TAG}" 2>/dev/null); then
+    echo "ERROR: ${IMAGE}:${TAG} already exists on the registry." >&2
+    echo "       ${EXISTING}" >&2
+    echo "       Bump mcp_server/docker/VERSION (currently ${BK_VERSION}) and re-run." >&2
+    echo "       To retag an existing digest instead: oras tag ${IMAGE}:<existing> <new-tag>" >&2
+    exit 1
+  fi
+
   echo "==> Building OCI tarball at ${OCI_TARBALL}"
   docker buildx build \
     --builder "${BUILDER}" \

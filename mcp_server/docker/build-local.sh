@@ -67,6 +67,7 @@ if [ "${PUSH}" = "1" ]; then
     --platform "${PLATFORMS}" \
     --build-arg "BUILD_DATE=${BUILD_DATE}" \
     --build-arg "VCS_REF=${VCS_REF}" \
+    --build-arg "BK_VERSION=${BK_VERSION}" \
     --tag "${IMAGE}:${TAG}" \
     --output "type=oci,dest=${OCI_TARBALL}" \
     .
@@ -86,6 +87,7 @@ else
     --platform "${HOST_PLATFORM}" \
     --build-arg "BUILD_DATE=${BUILD_DATE}" \
     --build-arg "VCS_REF=${VCS_REF}" \
+    --build-arg "BK_VERSION=${BK_VERSION}" \
     --tag "${IMAGE}:${TAG}" \
     --tag "${IMAGE}:${TAG}-${VCS_REF}" \
     --load \

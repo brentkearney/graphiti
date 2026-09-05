@@ -37,10 +37,15 @@ cd "$(dirname "$0")/../.."
 
 VCS_REF="$(git rev-parse --short HEAD)"
 BUILD_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+# The upstream mcp_server version comes from its pyproject, never a hardcoded default:
+# a stale default silently mislabels provenance, which is the one thing this image's
+# labels exist to get right.
+MCP_SERVER_VERSION="$(grep -m1 '^version' mcp_server/pyproject.toml | sed 's/.*"\(.*\)".*/\1/')"
 
 echo "==> Building ${IMAGE}:${TAG}"
 echo "    platforms: ${PLATFORMS}"
 echo "    VCS ref:   ${VCS_REF}"
+echo "    mcp server: ${MCP_SERVER_VERSION}"
 echo "    push:      ${PUSH}"
 echo
 
@@ -68,6 +73,7 @@ if [ "${PUSH}" = "1" ]; then
     --build-arg "BUILD_DATE=${BUILD_DATE}" \
     --build-arg "VCS_REF=${VCS_REF}" \
     --build-arg "BK_VERSION=${BK_VERSION}" \
+    --build-arg "MCP_SERVER_VERSION=${MCP_SERVER_VERSION}" \
     --tag "${IMAGE}:${TAG}" \
     --output "type=oci,dest=${OCI_TARBALL}" \
     .
@@ -88,6 +94,7 @@ else
     --build-arg "BUILD_DATE=${BUILD_DATE}" \
     --build-arg "VCS_REF=${VCS_REF}" \
     --build-arg "BK_VERSION=${BK_VERSION}" \
+    --build-arg "MCP_SERVER_VERSION=${MCP_SERVER_VERSION}" \
     --tag "${IMAGE}:${TAG}" \
     --tag "${IMAGE}:${TAG}-${VCS_REF}" \
     --load \

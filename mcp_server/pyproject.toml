@@ -25,6 +25,14 @@ providers = [
     "sentence-transformers>=3.2.1",
 ]
 
+# The image build deletes uv.lock and re-resolves, so the FalkorDB client floor has
+# to live here. falkordb < 1.7.0 passes connection kwargs redis-py 8.x rejects, which
+# breaks the driver at construction time; 1.7.1 is the first release whose own
+# metadata declares the compatible range (redis>=8.0.0,<9). Replaces an earlier
+# "redis<8.1" ceiling, which pinned redis back instead of fixing the client.
+[tool.uv]
+constraint-dependencies = ["falkordb>=1.7.1"]
+
 [tool.pyright]
 include = ["src", "tests"]
 pythonVersion = "3.10"

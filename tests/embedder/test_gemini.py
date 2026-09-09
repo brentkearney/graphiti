@@ -123,9 +123,7 @@ class TestGeminiEmbedderInitialization:
     @patch('google.genai.Client')
     def test_gemini_embedding_2_forces_batch_size_1(self, mock_client):
         """gemini-embedding-2 with no batch_size should force batch_size=1."""
-        config = GeminiEmbedderConfig(
-            api_key='test_api_key', embedding_model='gemini-embedding-2'
-        )
+        config = GeminiEmbedderConfig(api_key='test_api_key', embedding_model='gemini-embedding-2')
         embedder = GeminiEmbedder(config=config)
 
         assert embedder.batch_size == 1
@@ -165,9 +163,7 @@ class TestGeminiEmbedderInitialization:
     @patch('google.genai.Client')
     def test_explicit_batch_size_overrides_gemini_default(self, mock_client):
         """An explicit batch_size wins even for gemini-embedding models."""
-        config = GeminiEmbedderConfig(
-            api_key='test_api_key', embedding_model='gemini-embedding-2'
-        )
+        config = GeminiEmbedderConfig(api_key='test_api_key', embedding_model='gemini-embedding-2')
         embedder = GeminiEmbedder(config=config, batch_size=8)
 
         assert embedder.batch_size == 8
@@ -459,9 +455,7 @@ class TestGeminiEmbedderCreateBatch:
         mock_gemini_response: MagicMock,
     ) -> None:
         """With batch_size=1, create_batch calls the API once per input with single-element contents."""
-        config = GeminiEmbedderConfig(
-            api_key='test_api_key', embedding_model='gemini-embedding-2'
-        )
+        config = GeminiEmbedderConfig(api_key='test_api_key', embedding_model='gemini-embedding-2')
         embedder = GeminiEmbedder(config=config)
         embedder.client = mock_gemini_client
         assert embedder.batch_size == 1

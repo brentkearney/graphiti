@@ -65,7 +65,7 @@ def build_embedder(config_path: str) -> GeminiEmbedder:
 COUNT_CYPHER = {
     EntityNode: 'MATCH (n:Entity) WHERE n.group_id IN $gids RETURN count(n) AS c',
     EntityEdge: 'MATCH (n:Entity)-[e:RELATES_TO]->(m:Entity) '
-                'WHERE e.group_id IN $gids RETURN count(e) AS c',
+    'WHERE e.group_id IN $gids RETURN count(e) AS c',
     CommunityNode: 'MATCH (c:Community) WHERE c.group_id IN $gids RETURN count(c) AS c',
 }
 
@@ -148,23 +148,38 @@ async def main() -> int:
     p.add_argument('--group-id', required=True, help='group_id property value to migrate')
     p.add_argument('--apply', action='store_true')
     p.add_argument('--force', action='store_true', help='apply even when marker exists')
-    p.add_argument('--page-size', type=int, default=200,
-                   help='accepted for CLI-contract compatibility; unused '
-                        '(objects load in a single query, see load_all)')
+    p.add_argument(
+        '--page-size',
+        type=int,
+        default=200,
+        help='accepted for CLI-contract compatibility; unused '
+        '(objects load in a single query, see load_all)',
+    )
     p.add_argument('--concurrency', type=int, default=10)
     p.add_argument('--config', default=DEFAULT_CONFIG)
     args = p.parse_args()
 
-    out = {'ok': False, 'mode': 'apply' if args.apply else 'status', 'graph': args.graph,
-           'counts': {}, 'marker': None, 'reembedded': None, 'failures': [], 'error': None}
+    out = {
+        'ok': False,
+        'mode': 'apply' if args.apply else 'status',
+        'graph': args.graph,
+        'counts': {},
+        'marker': None,
+        'reembedded': None,
+        'failures': [],
+        'error': None,
+    }
     driver = None
     try:
         driver = build_driver(args.graph)
         nodes = await load_all(EntityNode, driver, args.group_id, args.page_size)
         edges = await load_all(EntityEdge, driver, args.group_id, args.page_size)
         communities = await load_all(CommunityNode, driver, args.group_id, args.page_size)
-        out['counts'] = {'entities': len(nodes), 'edges': len(edges),
-                         'communities': len(communities)}
+        out['counts'] = {
+            'entities': len(nodes),
+            'edges': len(edges),
+            'communities': len(communities),
+        }
         out['marker'] = await read_marker(driver)
 
         if not args.apply:
@@ -181,8 +196,9 @@ async def main() -> int:
         # single write, so a partial run never leaves some types saved and others not.
         await embed_all(nodes, lambda n: n.generate_name_embedding(embedder), args.concurrency)
         await embed_all(edges, lambda e: e.generate_embedding(embedder), args.concurrency)
-        await embed_all(communities, lambda c: c.generate_name_embedding(embedder),
-                        args.concurrency)
+        await embed_all(
+            communities, lambda c: c.generate_name_embedding(embedder), args.concurrency
+        )
 
         # Phase 2: save every type, collecting per-object save failures. reembedded
         # reflects what actually persisted (attempted minus failed), even on error.

@@ -14,18 +14,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-# Regression coverage for the FalkorDB edge-fulltext LIMIT hoist.
+# FalkorDB edge-fulltext query shape.
 #
-# FalkorDB's db.idx.fulltext.queryRelationships procedure takes no {limit}
-# option (unlike Neo4j), so without an early LIMIT the per-row
-# `MATCH (n:Entity)-[e:RELATES_TO {uuid: rel.uuid}]->(m:Entity)` expansion runs
-# once per fulltext hit and times out on broad-tokened queries against large
-# graphs. The fix inserts `WITH ... ORDER BY score DESC LIMIT $limit_with_buffer`
-# between the YIELD and the MATCH, FalkorDB-only, with limit_with_buffer == limit*4.
+# Live path (search_utils.edge_fulltext_search): upstream #1711 reads a hit's
+# endpoints off the yielded relationship instead of re-matching
+# `(n:Entity)-[e:RELATES_TO {uuid: rel.uuid}]->(m:Entity)`, which FalkorDB plans as
+# a full :Entity scan per hit. The fork's earlier LIMIT hoist on this path was
+# superseded by #1711 and, left in place, silently overrode it.
 #
-# These tests drive the live path (search_utils.edge_fulltext_search) and the
-# dormant copy (FalkorSearchOperations.edge_fulltext_search) with mocked drivers,
-# capturing the emitted Cypher without touching a database.
+# Dormant copy (FalkorSearchOperations.edge_fulltext_search): #1711 did not touch
+# it, so it keeps the fork's hoist — `WITH ... ORDER BY score DESC LIMIT
+# $limit_with_buffer` between the YIELD and the MATCH, with limit_with_buffer ==
+# limit*4.
+#
+# Both are driven with mocked drivers, capturing the emitted Cypher without
+# touching a database.
 
 from unittest.mock import AsyncMock
 
@@ -71,35 +74,14 @@ async def _run_search(provider: GraphProvider, limit: int = 5):
     return cypher, call.kwargs
 
 
-async def test_falkordb_hoists_limit_before_relates_to_expansion():
-    """A. Regression: FalkorDB emits LIMIT $limit_with_buffer before the per-row MATCH."""
+async def test_falkordb_live_path_reads_endpoints_without_per_hit_scan():
+    """A. FalkorDB takes endpoints from the yielded relationship (#1711), no per-hit MATCH."""
     cypher, kwargs = await _run_search(GraphProvider.FALKORDB, limit=5)
 
-    assert LIMIT_WITH_BUFFER in cypher
-    assert RELATES_TO_EXPANSION in cypher
-    assert cypher.index(LIMIT_WITH_BUFFER) < cypher.index(RELATES_TO_EXPANSION), (
-        'the buffered LIMIT must be hoisted ahead of the RELATES_TO expansion'
-    )
-    assert kwargs['limit_with_buffer'] == 5 * 4
-
-
-@pytest.mark.parametrize('provider', [GraphProvider.NEO4J, GraphProvider.KUZU])
-async def test_other_providers_are_untouched(provider):
-    """B. Provider isolation: non-FalkorDB queries carry no buffered LIMIT."""
-    cypher, kwargs = await _run_search(provider, limit=5)
-
-    assert LIMIT_WITH_BUFFER not in cypher
-    assert 'limit_with_buffer' not in kwargs
-
-
-async def test_falkordb_final_order_by_limit_still_terminates():
-    """C. Correctness: the final ORDER BY score DESC / LIMIT $limit still bounds the query."""
-    cypher, kwargs = await _run_search(GraphProvider.FALKORDB, limit=5)
-
+    assert 'startNode(rel) AS n' in cypher
+    assert 'endNode(rel) AS m' in cypher
+    assert RELATES_TO_EXPANSION not in cypher
     assert cypher.rstrip().endswith('LIMIT $limit')
-    # The terminating LIMIT must come after the RELATES_TO expansion (i.e. it is
-    # a distinct, later clause from the hoisted buffered LIMIT).
-    assert cypher.rindex('LIMIT $limit') > cypher.index(RELATES_TO_EXPANSION)
     assert kwargs['limit'] == 5
 
 

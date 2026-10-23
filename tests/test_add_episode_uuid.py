@@ -62,6 +62,11 @@ def make_graphiti(graph_driver, llm, embedder, cross_encoder) -> Graphiti:
     )
 
 
+def scoped_driver(graphiti: Graphiti):
+    """The driver add_episode wrote through: group_id routes to its own graph on FalkorDB."""
+    return graphiti._resolve_request_scope(group_id)[1]
+
+
 @pytest.mark.asyncio
 async def test_add_episode_with_fresh_uuid_creates_episode(
     graph_driver, empty_extraction_llm_client, null_embedder, null_cross_encoder
@@ -84,7 +89,7 @@ async def test_add_episode_with_fresh_uuid_creates_episode(
     )
 
     assert result.episode.uuid == supplied_uuid
-    stored = await EpisodicNode.get_by_uuid(graphiti.driver, supplied_uuid)
+    stored = await EpisodicNode.get_by_uuid(scoped_driver(graphiti), supplied_uuid)
     assert stored.uuid == supplied_uuid
     assert stored.name == 'fresh-uuid episode'
     assert stored.content == 'episode created with a client-supplied uuid'
@@ -123,7 +128,7 @@ async def test_add_episode_with_existing_uuid_reprocesses_in_place(
 
     assert result.episode.uuid == existing_uuid
     assert result.episode.content == 'stored content'
-    records, _, _ = await graphiti.driver.execute_query(
+    records, _, _ = await scoped_driver(graphiti).execute_query(
         'MATCH (e:Episodic {uuid: $uuid}) RETURN count(e) AS n',
         uuid=existing_uuid,
     )

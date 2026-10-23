@@ -80,7 +80,7 @@ async def test_semantic_candidate_search_skips_blank_names(monkeypatch):
     clients, _ = _make_clients()
     queries = []
 
-    async def create_batch(input_data):
+    async def create_batch(input_data, task_type=None):
         queries.extend(input_data)
         return [[0.1, 0.2, 0.3] for _ in input_data]
 

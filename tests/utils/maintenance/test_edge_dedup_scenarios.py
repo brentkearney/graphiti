@@ -194,7 +194,9 @@ async def run_scenario(scenario: dict) -> dict:
     llm_client = MagicMock()
     llm_client.generate_response = AsyncMock(side_effect=fake_llm)
     embedder = MagicMock()
-    embedder.create_batch = AsyncMock(side_effect=lambda texts: [_text_vec(t) for t in texts])
+    embedder.create_batch = AsyncMock(
+        side_effect=lambda texts, task_type=None: [_text_vec(t) for t in texts]
+    )
 
     extracted = EntityEdge(
         source_node_uuid=src,

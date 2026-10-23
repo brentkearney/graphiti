@@ -24,6 +24,7 @@ from graphiti_core.nodes import EntityNode, EpisodeType, EpisodicNode, SagaNode
 from graphiti_core.search.search_filters import SearchFilters
 from graphiti_core.utils.maintenance.graph_data_operations import clear_data
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -206,6 +207,39 @@ When adding information, provide descriptive names and detailed content to impro
 When searching, use specific queries and consider filtering by group_id, type, or date range. The
 server requires a configured database and valid API keys for language-model operations.
 """
+
+
+# Configure transport security for DNS rebinding protection.
+# The MCP SDK (2.x) only auto-enables protection when the app's bind host is a localhost
+# name, and the container binds 0.0.0.0, so the fork always passes explicit settings to the
+# app factories in run_mcp_server. With MCP_HOSTNAMES unset the allowlist is localhost-only
+# (the effective behaviour shipped in graphiti-custom v1.9.0). When MCP_HOSTNAMES is set
+# (comma-separated), each entry is added so non-localhost connections (e.g. from LAN clients
+# or alternative DNS names) are accepted.
+def _build_transport_security(raw: str) -> TransportSecuritySettings:
+    hostnames = [h.strip() for h in raw.split(',') if h.strip()]
+
+    # Each host needs BOTH forms. The SDK matcher (mcp.server.transport_security.
+    # _validate_host) tries an exact match, then treats a trailing ':*' as
+    # "base host followed by a colon" — so a ':*' pattern alone never matches a
+    # portless Host header, which is precisely what a client sends when it reaches
+    # the server on port 80/443 (e.g. behind a reverse proxy). Emit the bare host
+    # for the exact-match path and 'host:*' for any explicit port.
+    def _both(host: str) -> list[str]:
+        return [host, f'{host}:*']
+
+    allowed: list[str] = []
+    for h in hostnames:
+        allowed.extend(_both(h))
+    for h in ('127.0.0.1', 'localhost', '[::1]'):
+        allowed.extend(_both(h))
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=allowed,
+    )
+
+
+_transport_security = _build_transport_security(os.environ.get('MCP_HOSTNAMES', ''))
 
 # MCP server instance
 mcp = MCPServer(
@@ -1395,7 +1429,9 @@ async def run_mcp_server():
         logger.info(f'Running MCP server with SSE transport on {mcp_config.host}:{mcp_config.port}')
         logger.info(f'Access the server at: http://{mcp_config.host}:{mcp_config.port}/sse')
 
-        app = _wrap_with_auth(mcp.sse_app(host=mcp_config.host))
+        app = _wrap_with_auth(
+            mcp.sse_app(host=mcp_config.host, transport_security=_transport_security)
+        )
 
         configure_uvicorn_logging()
         server = uvicorn.Server(
@@ -1426,7 +1462,9 @@ async def run_mcp_server():
         logger.info('=' * 60)
         logger.info('For MCP clients, connect to the /mcp/ endpoint above')
 
-        app = _wrap_with_auth(mcp.streamable_http_app(host=mcp_config.host))
+        app = _wrap_with_auth(
+            mcp.streamable_http_app(host=mcp_config.host, transport_security=_transport_security)
+        )
 
         # Configure uvicorn logging to match our format
         configure_uvicorn_logging()

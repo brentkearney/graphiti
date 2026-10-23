@@ -100,11 +100,22 @@ def edge(context: dict[str, Any]) -> list[Message]:
             '- If a relationship does not match any FACT_TYPE, skip it. Do not derive a new '
             'relation_type.'
             if context.get('strict_edge_types', False)
-            else '- If FACT_TYPES are provided and the relationship matches one of the types '
-            '(considering the entity type signature), use that fact_type_name as the '
-            '`relation_type`.\n'
-            '- Otherwise, derive a `relation_type` from the relationship predicate in '
-            'SCREAMING_SNAKE_CASE (e.g., WORKS_AT, LIVES_IN, IS_FRIENDS_WITH).'
+            else "FACT_TYPES is this graph's relation vocabulary. Reusing a name is what makes the "
+            'graph queryable; a name that appears on exactly one fact is worthless to a reader.\n'
+            '\n'
+            '1. If any FACT_TYPE covers the relationship — even loosely — use its '
+            '`fact_type_name` VERBATIM, exactly as spelled in FACT_TYPES. Match on meaning, not '
+            'on the sentence\'s verb: "X sits inside Y", "X is a component of Y" and "X is one '
+            'of Y\'s modules" are all the same fact type.\n'
+            "2. Read each fact type's description before deciding. A description often names "
+            'the narrower predicates it is meant to absorb.\n'
+            '3. If a fact type says what you want with the two entities the other way round, '
+            'SWAP the entities and use that fact type. Never coin an inverse of an existing '
+            'type.\n'
+            '4. Coining a new `relation_type` is a last resort, for a relationship no FACT_TYPE '
+            'covers even loosely. Before you coin one, re-read FACT_TYPES. When you must coin, '
+            'use SCREAMING_SNAKE_CASE and keep it general enough that other facts could reuse '
+            'it — prefer PREVENTS over PREVENTS_REFRESH_OF, AUTHORED over FAILED_TO_SIGN_CLA_ON.'
         )
         edge_types_section = f"""
 <FACT_TYPES>

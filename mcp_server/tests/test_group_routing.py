@@ -130,12 +130,13 @@ async def test_get_episodes_queries_each_group_with_its_own_driver(monkeypatch):
     install_service(monkeypatch, client, default_group_id='')
     calls = []
 
-    def episode(uuid, created_at):
+    def episode(uuid, valid_at):
         return SimpleNamespace(
             uuid=uuid,
             name='ep',
             content='body',
-            created_at=created_at,
+            created_at=valid_at,
+            valid_at=valid_at,
             source='text',
             source_description='d',
             group_id='g',
@@ -149,20 +150,57 @@ async def test_get_episodes_queries_each_group_with_its_own_driver(monkeypatch):
         'g2': [episode('new', new), episode('mid', mid)],
     }
 
-    async def fake_get_by_group_ids(driver, group_ids, limit=None, uuid_cursor=None):
-        calls.append((driver, group_ids, limit))
+    async def fake_get_recent_by_group_ids(driver, group_ids, limit=None, order_by='valid_at'):
+        calls.append((driver, group_ids, limit, order_by))
         return replies[group_ids[0]]
 
     monkeypatch.setattr(
-        server.EpisodicNode, 'get_by_group_ids', staticmethod(fake_get_by_group_ids)
+        server.EpisodicNode,
+        'get_recent_by_group_ids',
+        staticmethod(fake_get_recent_by_group_ids),
     )
 
     response = await server.get_episodes(group_ids=['g1', 'g2'], max_episodes=2)
 
     assert {call[0].database for call in calls} == {'g1', 'g2'}
     assert all(call[0] is not client.driver for call in calls)
+    assert {call[3] for call in calls} == {'valid_at'}
     # Newest first, truncated to max_episodes.
     assert [e['uuid'] for e in response['episodes']] == ['new', 'mid']
+
+
+@pytest.mark.parametrize(
+    ('order_by', 'expected'),
+    [('valid_at', ['b', 'a']), ('created_at', ['a', 'b'])],
+)
+async def test_get_episodes_merges_groups_on_the_requested_clock(monkeypatch, order_by, expected):
+    client = make_client(FakeDriver())
+    install_service(monkeypatch, client, default_group_id='')
+    early = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    late = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    # 'a' was ingested last but describes older events; 'b' is the reverse.
+    replies = {
+        'g1': [SimpleNamespace(uuid='a', valid_at=early, created_at=late)],
+        'g2': [SimpleNamespace(uuid='b', valid_at=late, created_at=early)],
+    }
+    for reply in replies.values():
+        for e in reply:
+            e.__dict__.update(
+                name='ep', content='c', source='text', source_description='d', group_id='g'
+            )
+
+    async def fake_get_recent_by_group_ids(driver, group_ids, limit=None, order_by='valid_at'):
+        return replies[group_ids[0]]
+
+    monkeypatch.setattr(
+        server.EpisodicNode,
+        'get_recent_by_group_ids',
+        staticmethod(fake_get_recent_by_group_ids),
+    )
+
+    response = await server.get_episodes(group_ids=['g1', 'g2'], order_by=order_by)
+
+    assert [e['uuid'] for e in response['episodes']] == expected
 
 
 async def test_clear_graph_clears_each_group_with_its_own_driver(monkeypatch):

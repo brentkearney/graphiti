@@ -538,6 +538,8 @@ DNS-rebinding protection; configure `MCP_HOSTNAMES` for non-localhost clients.
 `get_episodes(order_by=...)` retains event-time, ingest-time, and UUID ordering across
 the group-scoped driver routing. Search tuning and strict OpenAI-compatible JSON
 schemas remain enabled in the Umbrel build.
+The local image declares `httpx` directly because core imports it; it must not depend
+on another provider installing it transitively.
 
 > [!IMPORTANT]
 > You will need the Python package manager, `uv` installed. Please refer to the [`uv` install instructions](https://docs.astral.sh/uv/getting-started/installation/).

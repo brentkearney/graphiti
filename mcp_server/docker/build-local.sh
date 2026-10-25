@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build and push multi-arch MCP server image from the local graphiti-core sources.
 #
-# Produces ghcr.io/brentkearney/graphiti-mcp:feat-bearer-auth (and a SHA tag).
+# Produces immutable ghcr.io/brentkearney/graphiti-mcp:bk-v<VERSION> and revision tags.
 #
 # Two-step flow:
 #   1. buildx builds the multi-arch image into a local OCI tarball

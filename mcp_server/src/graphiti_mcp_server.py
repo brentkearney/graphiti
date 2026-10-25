@@ -217,8 +217,8 @@ server requires a configured database and valid API keys for language-model oper
 # Configure transport security for DNS rebinding protection.
 # The MCP SDK (2.x) only auto-enables protection when the app's bind host is a localhost
 # name, and the container binds 0.0.0.0, so the fork always passes explicit settings to the
-# app factories in run_mcp_server. With MCP_HOSTNAMES unset the allowlist is localhost-only
-# (the effective behaviour shipped in graphiti-custom v1.9.0). When MCP_HOSTNAMES is set
+# app factories in run_mcp_server. With MCP_HOSTNAMES unset the allowlist is localhost-only.
+# When MCP_HOSTNAMES is set
 # (comma-separated), each entry is added so non-localhost connections (e.g. from LAN clients
 # or alternative DNS names) are accepted.
 def _build_transport_security(raw: str) -> TransportSecuritySettings:

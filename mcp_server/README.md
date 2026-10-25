@@ -532,6 +532,13 @@ VS Code with GitHub Copilot Chat extension supports MCP servers. Add to your VS 
 
 To use the Graphiti MCP server with other MCP-compatible clients, configure it to connect to the server:
 
+This fork uses MCP SDK 2.x on graphiti-core 0.31.2. SDK 1.x streamable-HTTP clients
+can still connect. HTTP and SSE both retain bearer authentication and explicit
+DNS-rebinding protection; configure `MCP_HOSTNAMES` for non-localhost clients.
+`get_episodes(order_by=...)` retains event-time, ingest-time, and UUID ordering across
+the group-scoped driver routing. Search tuning and strict OpenAI-compatible JSON
+schemas remain enabled in the Umbrel build.
+
 > [!IMPORTANT]
 > You will need the Python package manager, `uv` installed. Please refer to the [`uv` install instructions](https://docs.astral.sh/uv/getting-started/installation/).
 >
